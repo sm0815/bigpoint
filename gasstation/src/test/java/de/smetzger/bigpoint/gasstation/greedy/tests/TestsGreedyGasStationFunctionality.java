@@ -1,4 +1,4 @@
-package de.smetzger.bigpoint.gasstation.tests;
+package de.smetzger.bigpoint.gasstation.greedy.tests;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -10,14 +10,16 @@ import net.bigpoint.assessment.gasstation.exceptions.NotEnoughGasException;
 
 import org.junit.Test;
 
-import de.smetzger.bigpoint.gasstation.StevesSimpleGasStation;
+import de.smetzger.bigpoint.gasstation.greedy.StevesGreedyGasStation;
+import de.smetzger.bigpoint.gasstation.tests.Client;
 import de.smetzger.bigpoint.gasstation.tests.Client.DelayedCustomer;
 
 
-public class GasStationFunctionalityTests {
+public class TestsGreedyGasStationFunctionality {
 
-	protected GasStation generateStation(){
-		GasStation station=new StevesSimpleGasStation();		
+	
+	protected GasStation generateStation(){		
+		GasStation station=new StevesGreedyGasStation();
 		station.addGasPump(new GasPump(GasType.DIESEL, 15));
 		station.addGasPump(new GasPump(GasType.REGULAR, 150));
 		station.addGasPump(new GasPump(GasType.SUPER, 15));
@@ -80,19 +82,19 @@ public class GasStationFunctionalityTests {
 		}
 		
 		assertEquals("3 sold", 3, station.getNumberOfSales());
-		assertEquals("3 outagas", 3, station.getNumberOfCancellationsNoGas());
-		assertEquals("1 too expensive", 1, station.getNumberOfCancellationsTooExpensive());
+		assertEquals("2 outagas", 2, station.getNumberOfCancellationsNoGas());
+		assertEquals("2 too expensive", 2, station.getNumberOfCancellationsTooExpensive());
 		assertEquals("28 revenue", 28d, station.getRevenue(), 0.001);	
-		/*
+/*		
 		System.out.println("Sold: "+station.getNumberOfSales());
 		System.out.println("OutaGas: "+station.getNumberOfCancellationsNoGas());
 		System.out.println("Expensive: "+station.getNumberOfCancellationsTooExpensive());
 		System.out.println("Revenue: "+station.getRevenue());
-		*/
+	*/	
 	}
 	
 	
-//	@Ignore
+	//@Ignore
 	@Test
 	public void testMultiThreadBasicRacing(){
 		GasStation station=generateStation();	
@@ -121,6 +123,42 @@ public class GasStationFunctionalityTests {
 		System.out.println("Expensive: "+station.getNumberOfCancellationsTooExpensive());
 		System.out.println("Revenue: "+station.getRevenue());
 		*/	
+	}
+	
+	
+	//@Ignore
+	@Test
+	public void testMultiThreadQueuedRacing(){
+		GasStation station=generateStation();	
+		Client c1=new Client(station,4,GasType.DIESEL,5);
+		Client c2=new DelayedCustomer(station,5,GasType.DIESEL,5,100);
+		Client c3=new DelayedCustomer(station,11,GasType.DIESEL,5,100);
+		
+		Thread t1=new Thread(c1);
+		Thread t2=new Thread(c2);
+		Thread t3=new Thread(c3);
+		t1.start();		
+		t2.start();
+		t3.start();
+		
+		while(t1.isAlive() || t2.isAlive()|| t3.isAlive())
+			try {
+				Thread.sleep(500);
+			} catch (InterruptedException e) {
+				// ignore
+			}
+		
+		assertEquals("2 sold", 2, station.getNumberOfSales());
+		assertEquals("1 outagas", 1, station.getNumberOfCancellationsNoGas());
+		assertEquals("0 too expensive", 0, station.getNumberOfCancellationsTooExpensive());
+		assertTrue("30 or 18 revenue", (30d== station.getRevenue() || 18d==station.getRevenue()));	
+/*		
+		System.out.println("Sold: "+station.getNumberOfSales());
+		System.out.println("OutaGas: "+station.getNumberOfCancellationsNoGas());
+		System.out.println("Expensive: "+station.getNumberOfCancellationsTooExpensive());
+		System.out.println("Revenue: "+station.getRevenue());
+		
+			*/
 	}
 	
 	
@@ -168,77 +206,6 @@ public class GasStationFunctionalityTests {
 			
 	}
 
-	
-//	@Ignore
-	@Test
-	public void testMultiThreadQueuedRacing(){
-		GasStation station=generateStation();	
-		Client c1=new Client(station,4,GasType.DIESEL,5);
-		Client c2=new DelayedCustomer(station,5,GasType.DIESEL,5,100);
-		Client c3=new DelayedCustomer(station,11,GasType.DIESEL,5,100);
-		
-		Thread t1=new Thread(c1);
-		Thread t2=new Thread(c2);
-		Thread t3=new Thread(c3);
-		t1.start();		
-		t2.start();
-		t3.start();
-		
-		while(t1.isAlive() || t2.isAlive()|| t3.isAlive())
-			try {
-				Thread.sleep(500);
-			} catch (InterruptedException e) {
-				// ignore
-			}
-		
-		assertEquals("2 sold", 2, station.getNumberOfSales());
-		assertEquals("1 outagas", 1, station.getNumberOfCancellationsNoGas());
-		assertEquals("0 too expensive", 0, station.getNumberOfCancellationsTooExpensive());
-		assertTrue("30 or 18 revenue", (30d== station.getRevenue() || 18d==station.getRevenue()));	
-/*		
-		System.out.println("Sold: "+station.getNumberOfSales());
-		System.out.println("OutaGas: "+station.getNumberOfCancellationsNoGas());
-		System.out.println("Expensive: "+station.getNumberOfCancellationsTooExpensive());
-		System.out.println("Revenue: "+station.getRevenue());
-		
-			*/
-	}
-	
-//	@Ignore
-	@Test
-	public void testMultiThreadQueuedRacingOptimal(){
-		GasStation station=generateStation();	
-		Client c1=new Client(station,4,GasType.DIESEL,5);
-		Client c2=new DelayedCustomer(station,5,GasType.DIESEL,5,100);
-		Client c3=new DelayedCustomer(station,11,GasType.DIESEL,5,100);
-		
-		Thread t1=new Thread(c1);
-		Thread t2=new Thread(c2);
-		Thread t3=new Thread(c3);
-		t1.start();		
-		t2.start();
-		t3.start();
-		
-		while(t1.isAlive() || t2.isAlive()|| t3.isAlive())
-			try {
-				Thread.sleep(500);
-			} catch (InterruptedException e) {
-				// ignore
-			}
-		
-		assertEquals("2 sold", 2, station.getNumberOfSales());
-		assertEquals("1 outagas", 1, station.getNumberOfCancellationsNoGas());
-		assertEquals("0 too expensive", 0, station.getNumberOfCancellationsTooExpensive());
-		assertEquals("30 revenue", 30d, station.getRevenue(),0.00001);	
-/*		
-		System.out.println("Sold: "+station.getNumberOfSales());
-		System.out.println("OutaGas: "+station.getNumberOfCancellationsNoGas());
-		System.out.println("Expensive: "+station.getNumberOfCancellationsTooExpensive());
-		System.out.println("Revenue: "+station.getRevenue());
-		*/	
-	}
-	
-//	@Ignore
 	@Test
 	public void testPriceChanges(){
 		GasStation station=generateStation();	
@@ -278,6 +245,43 @@ public class GasStationFunctionalityTests {
 		System.out.println("Revenue: "+station.getRevenue());
 		*/	
 	}
+	
+	
+	
+	//@Ignore
+	@Test
+	public void testMultiThreadQueuedRacingOptimal(){
+		GasStation station=generateStation();	
+		Client c1=new Client(station,4,GasType.DIESEL,5);
+		Client c2=new DelayedCustomer(station,5,GasType.DIESEL,5,100);
+		Client c3=new DelayedCustomer(station,11,GasType.DIESEL,5,100);
+		
+		Thread t1=new Thread(c1);
+		Thread t2=new Thread(c2);
+		Thread t3=new Thread(c3);
+		t1.start();		
+		t2.start();
+		t3.start();
+		
+		while(t1.isAlive() || t2.isAlive()|| t3.isAlive())
+			try {
+				Thread.sleep(500);
+			} catch (InterruptedException e) {
+				// ignore
+			}
+		
+		assertEquals("2 sold", 2, station.getNumberOfSales());
+		assertEquals("1 outagas", 1, station.getNumberOfCancellationsNoGas());
+		assertEquals("0 too expensive", 0, station.getNumberOfCancellationsTooExpensive());
+		assertEquals("30 revenue", 30d, station.getRevenue(),0.00001);	
+/*		
+		System.out.println("Sold: "+station.getNumberOfSales());
+		System.out.println("OutaGas: "+station.getNumberOfCancellationsNoGas());
+		System.out.println("Expensive: "+station.getNumberOfCancellationsTooExpensive());
+		System.out.println("Revenue: "+station.getRevenue());
+		*/	
+	}
+	
 	
 	
 }
