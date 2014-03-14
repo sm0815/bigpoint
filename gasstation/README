@@ -1,0 +1,24 @@
+There are two variants of the gas station:
+1) A simple straight forward variant that matches gas pumps with customer wishes in an arbitrary manner. Each gas request waits in a loop until it can be matched to a free gas pump or it turns out no gas is left (or the price is too high). 
+The price handshake (fixing the price for the gas to be bought and deciding whether we go ahead) happens when a request is matched to a pump. Thus, it may happen that a request arrives at a time (globally) where prices are too high for him, but until it is his turn to pump gas, the price goes down, such that he will actually take his gas. Yet, the other way around is also possible. This is not a thread-safety issue, but a question of specification - which was open in this point. 
+
+2) The second variant is somewhat greedy and uses the fact that the gas station knows about all requests that are pending at a time how much gas they want, i.e. if necessary the station optimizes the request handling in such a way that the amount of gas sold is maximized (most of the time).
+The underlying problem here is a generalized assignment problem, i.e. assigning m requests to n gas pumps, and as such is NP-hard. While brute-force would be a possibility for small sets of requests and gas pumps, we use an approximation algorithm, by solving the knapsack problem (breadth-first) for each gas pump starting with the gas pump that can provide the most amount of gas. That is, we assign requests to gas pump i such that we maximize the amount of gas delivered by i. Then we go on with pump i+1 etc.
+(The station does not use the knowledge what price represented customers are willing to pay only the liters, although the model provides this information and an extension to maximize the financial gain instead of the amount of gas sold would be relatively simple).
+Note that we only apply this assignment approach when requests can otherwise not be assigned to any gas pump. That is, we maintain a queue for each gas pump and arbitrarily assign incoming requests to matching gas pumps that still have enough gas of the correct type (currently selecting the gas pump based on the order in the list in which they are maintained, but this could be randomized or follow a heuristic).  When a request comes in that cannot be assigned to any such queue (because there would not be enough gas left when the request will finally be processed), we apply reorganize the queues by globally computing an (approximate) optimal assignment. 
+So the assignment ensures to sell more gas for example in the following case:
+Assume all gas pumps are busy and two new customers arrive willing to buy DIESEL, one (c1) would like 4l the other (c2) 5l, yet there is only one gas pump, which will have 5l left, when the current customer is done with it. In the simple approach if customer c1 is quicker in getting to the gas pump we will only sell 4l of gas and c2 is rejected. Otherwise we sell 5l. and c1 is rejected. If both arrive while the gas pump is busy, the simple approach will randomly assign either c1 or c2 to the gas pump, while the greedy approach will always choose c2.
+In some cases the current implementation would also deterministically choose a suboptimal solution, e.g. when we first select all the small requests assigning them to gas pump i, such that at least one large request remains that cannot be dealt with by any of the other gas pumps (with smaller reserves). A completely optimal approach would solve this, but further increase complexity.
+
+One other difference is the price handshake - in this version we fix the price for a request at arrival of the request. That is, when the price changes while a customer request waits to be served this does not affect it (the price when it arrives counts). 
+
+There are some simple test cases included for both variants. The 'testMultiThreadQueuedRacingOptimal' test provides an example that shows a case where the greedy version typically sells more gas (although not necessarily, as the simple version may by chance get it right or - theoretically - the thread with the preferable request could take too long to reach the station for reasons outside the implementation). 
+
+As for the code structure, it should be relatively straight forward:
+There is in each case a GasStation class implementing the main functionality of the interface, and then there is a PumpAttendant class that basically wraps around the GasPump class to provide some additional information/methods, e.g. separating the calculation of the remaining amount of gas from the actual pumping and providing a 'busy' flag (in the simple case) or taking care of dealing with the customers queued at this pump in its own thread (in the greedy case).
+The greedy case also models customer requests in Customer objects for convenience.
+
+
+
+
+
