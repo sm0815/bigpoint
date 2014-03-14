@@ -3,15 +3,20 @@ package de.smetzger.bigpoint.gasstation.greedy;
 import net.bigpoint.assessment.gasstation.GasType;
 
 
-
+/** models a customer (request), 
+ *  basically aggregating the request components in an object 
+ *  (plus the state of the request processing) */
 public class Customer {
+	// models the state a customer might be in 
+	// (either waiting, already completely served or 
+	//  determined to have a request that cannot be met)
 	public enum State {InProcess, Served, CannotBeServed}
+	protected volatile State state=State.InProcess;
+	
 	protected double litersWanted;
 	protected double maxPricePaid;
 	protected GasType gasType;
 	
-
-	protected volatile State state=State.InProcess;
 	
 	public Customer(GasType gastype, double liters, double price){
 		litersWanted=liters;

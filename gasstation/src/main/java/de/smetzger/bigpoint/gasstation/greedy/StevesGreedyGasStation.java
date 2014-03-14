@@ -9,31 +9,33 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import javax.swing.event.ListSelectionEvent;
-
-import de.smetzger.bigpoint.gasstation.greedy.Customer.State;
-
-
 import net.bigpoint.assessment.gasstation.GasPump;
 import net.bigpoint.assessment.gasstation.GasStation;
 import net.bigpoint.assessment.gasstation.GasType;
 import net.bigpoint.assessment.gasstation.exceptions.GasTooExpensiveException;
 import net.bigpoint.assessment.gasstation.exceptions.NotEnoughGasException;
+import de.smetzger.bigpoint.gasstation.greedy.Customer.State;
 
+/** a version of the gas station that tries to maximize the amount of gas sold */
 public class StevesGreedyGasStation implements GasStation{
 	
+	//the pumps
 	protected List<GasPump> pumps=new ArrayList<GasPump>();
-	protected List<List<QueueingPumpAttendant>> attendants=new ArrayList<List<QueueingPumpAttendant>>(GasType.values().length);
+	//and their attendants, this time sorted by gas type
+	protected List<List<QueueingPumpAttendant>> attendants=
+			new ArrayList<List<QueueingPumpAttendant>>(GasType.values().length);
 	
-	
+	// statistics
 	protected double revenue=0;
 	protected AtomicInteger cancelledTooExpensive=new AtomicInteger();
 	protected AtomicInteger cancelledAllOutaGas=new AtomicInteger();
 	protected AtomicInteger sold=new AtomicInteger();
 	protected double[] prices=new double[GasType.values().length];
 	
+	//sleep time between checks for the next customer
 	protected final static int sleepTime=100;
 	
+	/** constructor */
 	public StevesGreedyGasStation(){
 		for(int i=0;i<prices.length;i++){
 			prices[i]=0;
@@ -51,9 +53,9 @@ public class StevesGreedyGasStation implements GasStation{
 	 */
 	public void addGasPump(GasPump pump) {
 		pumps.add(pump);	
-		QueueingPumpAttendant attendant=new QueueingPumpAttendant(this,pump);
-		attendants.get(pump.getGasType().ordinal()).add(attendant);
-		new Thread(attendant).start();
+		QueueingPumpAttendant attendant=new QueueingPumpAttendant(this,pump); //assigns an attendant
+		attendants.get(pump.getGasType().ordinal()).add(attendant); //and sorts the attendant into the list for that gas type
+		new Thread(attendant).start(); //starts the attendant's service cycle
 	}
 
 	/**
@@ -87,11 +89,13 @@ public class StevesGreedyGasStation implements GasStation{
 			double maxPricePerLiter) throws NotEnoughGasException,
 			GasTooExpensiveException {
 		
-		
+		//repesent the request as a customer object
 		Customer c=new Customer(type,amountInLiters,maxPricePerLiter);
 		
-		Double price=queueAtMatchingPumpAttendant(c);
+		//match it to an attendant and fix the price
+		Double price=queueAtMatchingPumpAttendant(c); //trows the exceptions if they apply
 		
+		//once we reach this point the customer is served and the gas was successfully sold
 		sold.incrementAndGet();			
 		double cost=price*amountInLiters;
 		
@@ -104,38 +108,39 @@ public class StevesGreedyGasStation implements GasStation{
 		revenue+=purchaseCost;
 	}
 
-	/** tries to acquire a pump that has enough gas for the given requirements, 
-	 *  @return a pump that can satisfy the customers needs 
-	 *           or null if all matching pumps are busy handling other customers
+	/** sorts the customer into the queue of a matching attendant if possible 
+	 *  @return		the price that applies for this transaction
 	 *  @throws NotEnoughGasException - if no pump available with enough gas 
-	 * @throws GasTooExpensiveException 
-	 *  @Note: As GasPump is not thread-safe, this implementation may wait longer than 
-	 *         strictly necessary before it throws a NotEnoughGasException;
-	 *         still it will eventually throw the error, 
-	 *         but may wait in some cases wait until all previous customers 
-	 *         (for the same gas type) are dealt with */
+	 *  @throws GasTooExpensiveException 
+     */
 	synchronized  protected double queueAtMatchingPumpAttendant(Customer c) 
 			throws NotEnoughGasException, GasTooExpensiveException{
 		
+		//get and fix the price
 		double currentPrice=getPrice(c.getGasType());
 		
+		//price check
 		if(c.getMaxPricePaid()<currentPrice){
 			cancelledTooExpensive.incrementAndGet();			
 			throw new GasTooExpensiveException();
-		}	
+		}			
 		
-		boolean queued=false;
+		boolean queued=false; //flag indicating whether customer could be matched to attendant
+		//go over all attendants that serve the correct gas type
 		for(QueueingPumpAttendant attendant:attendants.get(c.getGasType().ordinal())){
 			queued=attendant.tryToQueueCustomer(c);
-			System.out.println("c:"+c);
-			System.out.println("queued:"+queued);
-			if(queued)
+			if(queued) //if we find a match that can take the customer, we are done
 				break;
 		}
 		
+		//if we could not queue, we check if the customer is potentially servable 
+		// i.e. if there is any gas pump that has enough gas left to serve him
+		// IF we ignore the other customers queuing at the same pump/attendant
 		if((!queued) && queuable(c))
-			reorganizeQueues(c);
+			reorganizeQueues(c); //if that is the case we try to reorganize the queues in an optimal fashion
 		
+		// once we reach this point, the customer is either queued (in which case we wait)
+		// or the customer is considered un-servable, in which case the state is 'CannotBeServed'
 		while(c.getState()==State.InProcess){
 			try {
 				this.wait();
@@ -144,58 +149,74 @@ public class StevesGreedyGasStation implements GasStation{
 			}
 		}
 		
+		//if we cannot serve the customer, it has to be because there is not enough gas, 
+		// remember we did the price check explicitly earlier on
 		if(c.getState()==State.CannotBeServed){
 			cancelledAllOutaGas.incrementAndGet();
 			throw new NotEnoughGasException();					
 		}
-		else if(c.getState()==State.Served){
+		else if(c.getState()==State.Served){ // customer successfully served
 			return currentPrice;
 		}
-		else throw new RuntimeException("Oopsy.");
+		else throw new RuntimeException("Oopsy."); //this point should not be reached...
 					
 	}
 	
+	/** checks if there is any attendant/pump that could potentially serve the customer, 
+	 * i.e. has enough gas for the customers request IF we ignore the other queued customers
+	 * @param c		a customer
+	 * @return 		true, if there is an attendant with a gas pump that has enough gas left; 
+	 *              false otherwise
+	 */
 	protected boolean queuable(Customer c){
 		boolean queueable=false;
 		for (QueueingPumpAttendant attendant:attendants.get(c.getGasType().ordinal()))
 			if(attendant.getRemainingAmount()>=c.getLitersWanted())
 				queueable=true;
 			
-		if(!queueable)
+		if(!queueable)  //if there is no gas pump with enough gas to potentially serve the customer, it is unservable
 			c.setState(State.CannotBeServed);
 		return queueable;				
 	}
-	
+
+	// just a comparator to order attendants by the amount of gas available in their respective gas pumps
 	protected static final Comparator<QueueingPumpAttendant> gasBasedcomp=new RemainingGasBasedComparator();
 	protected static class RemainingGasBasedComparator implements Comparator<QueueingPumpAttendant>{		 
 	    @Override
 	    public int compare(QueueingPumpAttendant o1, QueueingPumpAttendant o2) {
 	    	return Double.compare(o1.getRemainingAmountAfterQueueProcessing(), o2.getRemainingAmountAfterQueueProcessing());	        
-	    }
+	    } //actually, at this point it should not matter which remaining value we use, because both should be equal...
 	} 
 	
+	/** reorganize all the queues to try somehow getting the given customer into a queue;
+	 *  uses an approximation heuristic; optimal solution could be achieved by investigating all possible combinations
+	 *  @param misfit	a customer that could not be queued (but potentially could match an attendant)
+	 * */
 	protected void reorganizeQueues(Customer misfit){
-		GasType type=misfit.getGasType();
-		System.out.println("reorganizing");
-		Set<Customer> allCustomers=new HashSet<Customer>();
+		GasType type=misfit.getGasType(); //get the gas type, we only need to care about attendants for this type		
+		Set<Customer> allCustomers=new HashSet<Customer>(); //will hold all customers queued at any attendant/pump and the misfit
 		allCustomers.add(misfit);
 		for(QueueingPumpAttendant a:attendants.get(type.ordinal())){
 			allCustomers.addAll(a.emptyCustomerQueue());
 		}
 		
+		//sort attendants by amount of gas left 
 		Collections.sort(attendants.get(type.ordinal()), gasBasedcomp);		
+		//for each attendant independently find an assignment of customers to its queue 
+		//that maximizes the amount of gas sold at this pump/attendant
+		//removes from allCustomers those that have been assigned to the attendant
 		for(QueueingPumpAttendant attendant:attendants.get(type.ordinal()))
 			findOptimalMatching(attendant,allCustomers);		
-		
+
+		//we assume any customer left cannot be served
 		for(Customer c:allCustomers){
-			c.setState(State.CannotBeServed);
-			System.out.println("cannot be served:"+c);
+			c.setState(State.CannotBeServed);			
 		}
-		System.out.println("reorganized");
+		
 	}
 	
 	/** very simple brute-force approach to find the best combination of customers that maximizes
-	 *  the usage (in liters taken) at one gas-pump; 
+	 *  the usage (in litres taken) at one gas-pump/attendant; 
 	 *  we do not take the prize customers are willing to pay into account;
 	 *  yet this would be a simple modification as this information is known to the station,
 	 *  so it could be really greedy and prefer customers that are willing to pay more...
@@ -203,32 +224,36 @@ public class StevesGreedyGasStation implements GasStation{
 	 * @param customers
 	 */
 	protected void findOptimalMatching(QueueingPumpAttendant attendant, Set<Customer> customers){
+		//how much 'space' do we have
 		double remainingLiters=attendant.getRemainingAmountAfterQueueProcessing();
 	
-		for(int i=customers.size();i>0; i--){
-			double maxValidLit=0;
-			Set<Customer> maxValidCombo=null;		
-			List<Set<Customer>> combinations=getAllCombinationsOfSize(customers,i);
-			for(Set<Customer> combo:combinations){
-				double liters=0;
-				for(Customer c:combo)
-					liters+=c.getLitersWanted();
-				if(liters<=remainingLiters)
-					if(liters>maxValidLit){
-						maxValidLit=liters;
+		// basically generates all customer combinations that could be served by the current attendant
+		// and then finds out the one with the maximal amount of litres
+		for(int i=customers.size();i>0; i--){ //this whole process could be optimized...
+			double maxValidLit=0;   //maximal amount of liters we could cover so far 
+			Set<Customer> maxValidCombo=null; //customer combination that achieved this
+			List<Set<Customer>> combinations=getAllCombinationsOfSize(customers,i);  //get all combinations of size i
+			for(Set<Customer> combo:combinations){ //check for each combination
+				double liters=0; 
+				for(Customer c:combo)  //how much litres we need to satisfy all customers 
+					liters+=c.getLitersWanted(); 
+				if(liters<=remainingLiters)  // if the combination can be satisfied by the attendant
+					if(liters>maxValidLit){  //and is larger than the last one
+						maxValidLit=liters;  //remember it
 						maxValidCombo=combo;
 					}
 			}
 			
-			if(maxValidCombo!=null){
+			if(maxValidCombo!=null){ // fi we found a combination generate the queue
 				for(Customer c:maxValidCombo)
 					attendant.tryToQueueCustomer(c);
-				customers.removeAll(maxValidCombo);
+				customers.removeAll(maxValidCombo);  //and ignore those customers for the remaining attendants
 				return;
 			}			
 		}					
 	}
 	
+	/** computes all subsets of a set of customers with a given size */
 	protected static List<Set<Customer>> getAllCombinationsOfSize(Set<Customer> customers, int size){
 		 List<Set<Customer>> combos=new ArrayList<Set<Customer>>();
 		 combos.add(new HashSet<Customer>(customers));
@@ -311,7 +336,7 @@ public class StevesGreedyGasStation implements GasStation{
 	
 	public static void main(String [] args)
 	{
-		
+		/** method for manual testing */
 		Customer c1=new Customer(GasType.DIESEL, 4, 3);
 		Customer c2=new Customer(GasType.DIESEL, 3, 3);
 		Customer c3=new Customer(GasType.DIESEL, 2, 3);
@@ -322,7 +347,7 @@ public class StevesGreedyGasStation implements GasStation{
 		customers.add(c2);
 		customers.add(c3);
 		customers.add(c4);
-		List<Set<Customer>> combos=StevesGreedyGasStation.getAllCombinationsOfSize(customers, 2);
+//		List<Set<Customer>> combos=StevesGreedyGasStation.getAllCombinationsOfSize(customers, 2);
 		
 		/*for(Set<Customer> combo:combos)
 			System.out.println(combo.toString());
@@ -341,70 +366,57 @@ public class StevesGreedyGasStation implements GasStation{
 		try {
 			station.buyGas(GasType.DIESEL, 80, 2);
 		} catch (NotEnoughGasException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
-		} catch (GasTooExpensiveException e) {
-			// TODO Auto-generated catch block
+		} catch (GasTooExpensiveException e) {			
 			e.printStackTrace();
 		}
 		
 		try {
 			station.buyGas(GasType.DIESEL, 3, 1);
 		} catch (NotEnoughGasException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (GasTooExpensiveException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		
 		try {
 			station.buyGas(GasType.DIESEL, 5, 2);
 		} catch (NotEnoughGasException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (GasTooExpensiveException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		
 		try {
 			station.buyGas(GasType.DIESEL, 4, 2);
 		} catch (NotEnoughGasException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (GasTooExpensiveException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		
 		try {
 			station.buyGas(GasType.DIESEL, 5, 2);
 		} catch (NotEnoughGasException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (GasTooExpensiveException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		
 		try {
 			station.buyGas(GasType.DIESEL, 3, 2);
 		} catch (NotEnoughGasException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (GasTooExpensiveException e) {
-			// TODO Auto-generated catch block
+
 			e.printStackTrace();
 		}
 		
 		try {
 			station.buyGas(GasType.DIESEL, 3, 1);
 		} catch (NotEnoughGasException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (GasTooExpensiveException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		

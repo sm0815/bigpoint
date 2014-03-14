@@ -8,7 +8,6 @@ import net.bigpoint.assessment.gasstation.GasType;
 import net.bigpoint.assessment.gasstation.exceptions.GasTooExpensiveException;
 import net.bigpoint.assessment.gasstation.exceptions.NotEnoughGasException;
 
-import org.junit.Ignore;
 import org.junit.Test;
 
 import de.smetzger.bigpoint.gasstation.greedy.StevesGreedyGasStation;
@@ -34,7 +33,7 @@ public class GreedyGasStationFunctionalityTests {
 	}
 	
 	
-	@Ignore
+//	@Ignore
 	@Test
 	public void singleThreadTest1(){
 		
@@ -111,8 +110,7 @@ public class GreedyGasStationFunctionalityTests {
 			try {
 				Thread.sleep(500);
 			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
+				// ignore
 			}
 		
 		assertEquals("1 sold", 1, station.getNumberOfSales());
@@ -147,8 +145,7 @@ public class GreedyGasStationFunctionalityTests {
 			try {
 				Thread.sleep(500);
 			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
+				// ignore
 			}
 		
 		assertEquals("2 sold", 2, station.getNumberOfSales());
@@ -164,9 +161,13 @@ public class GreedyGasStationFunctionalityTests {
 			*/
 	}
 	
+	
+	//NOTE: may fail with the simple version, as that might just assign the 6l and 4l guys suboptimally,
+	//     should always succeed in the greedy case 
+	//     (except if for some reason the delay between customers grows too large such that they do not queue)
 //	@Ignore
 	@Test
-	public void testMultiThreadParallelUsage(){
+	public void testMultiThreadParallelUsageOptimal(){
 		GasStation station=generateStation();	
 		Client c1=new Client(station,4,GasType.SUPER,5);
 		Client c2=new DelayedCustomer(station,6,GasType.SUPER,5,100);
@@ -189,20 +190,19 @@ public class GreedyGasStationFunctionalityTests {
 			try {
 				Thread.sleep(500);
 			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
+				// ignore
 			}
-		/*
+		
 		assertEquals("5 sold", 5, station.getNumberOfSales());
 		assertEquals("0 outagas", 0, station.getNumberOfCancellationsNoGas());
 		assertEquals("0 too expensive", 0, station.getNumberOfCancellationsTooExpensive());
 		assertTrue("50 revenue", (50d== station.getRevenue() || 18d==station.getRevenue()));	
-		*/
+		/*
 		System.out.println("Sold: "+station.getNumberOfSales());
 		System.out.println("OutaGas: "+station.getNumberOfCancellationsNoGas());
 		System.out.println("Expensive: "+station.getNumberOfCancellationsTooExpensive());
 		System.out.println("Revenue: "+station.getRevenue());
-		
+		*/
 			
 	}
 
@@ -231,8 +231,7 @@ public class GreedyGasStationFunctionalityTests {
 			try {
 				Thread.sleep(500);
 			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
+				// ignore
 			}
 		
 		assertEquals("3 sold", 3, station.getNumberOfSales());
@@ -268,8 +267,7 @@ public class GreedyGasStationFunctionalityTests {
 			try {
 				Thread.sleep(500);
 			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
+				// ignore
 			}
 		
 		assertEquals("2 sold", 2, station.getNumberOfSales());

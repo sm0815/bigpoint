@@ -14,18 +14,23 @@ import net.bigpoint.assessment.gasstation.exceptions.NotEnoughGasException;
 
 public class StevesSimpleGasStation implements GasStation{
 	
+	//the pumps
 	protected List<GasPump> pumps=new ArrayList<GasPump>();
+	//and their attendants (each attendant is responsible for a single pump)
 	protected List<PumpAttendant> attendants=new ArrayList<PumpAttendant>();
 	
-	
+	//statistics attributes
 	protected volatile double revenue=0;
 	protected AtomicInteger cancelledTooExpensive=new AtomicInteger();
 	protected AtomicInteger cancelledAllOutaGas=new AtomicInteger();
 	protected AtomicInteger sold=new AtomicInteger();
+	//the prices
 	protected double[] prices=new double[GasType.values().length];
 	
+	//how long to sleep before trying again to match an attendant to the current request
 	protected final static int sleepTime=100;
 	
+	/** constructor */
 	public StevesSimpleGasStation(){
 		for(int i=0;i<prices.length;i++)
 			prices[i]=0;
@@ -35,6 +40,7 @@ public class StevesSimpleGasStation implements GasStation{
 	/**
 	 * Add a gas pump to this station.
 	 * This is used to set up this station.
+	 * Assigns the pump to an attendant.
 	 * 
 	 * @param pump
 	 *            the gas pump
@@ -66,10 +72,10 @@ public class StevesSimpleGasStation implements GasStation{
 	 *            The maximum price the customer is willing to pay per liter
 	 * @return the price the customer has to pay for this transaction
 	 * @throws NotEnoughGasException
-	 *             Should be thrown in case not enough gas of this type can be provided
+	 *             thrown in case not enough gas of this type can be provided
 	 *             by any single {@link GasPump}.
 	 * @throws GasTooExpensiveException
-	 *             Should be thrown if gas is not sold at the requested price (or any lower price)
+	 *             thrown if gas is not sold at the requested price (or any lower price)
 	 */
 	public double buyGas(GasType type, double amountInLiters,
 			double maxPricePerLiter) throws NotEnoughGasException,
@@ -77,39 +83,36 @@ public class StevesSimpleGasStation implements GasStation{
 		
 		PumpAttendant attendant=null;
 		
+		// we continuously try to find an attendant that can handle the current request
+		// until one is found or none can possibly handle the request 
 		while((attendant=acquireMatchingPumpAttendant(type,amountInLiters))==null){				
 			try {
 				Thread.sleep(sleepTime);
 			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
+				// ignore
 			}			
 		}
 		
-		/* retrieves the price, then starts the pumping if agreeable to customer; 
-		 * the price is fixed when the PumpAttendant/GasPump is assigned,
-		 * so if we need to be really strict about concurrent price changes
-		 * the setPrice method could by synchronized as well 
-		 * (at the moment the pump assignment could have started but still be 
-		 *  affected by a price change coming in after it started; 
-		 *  still, selling to a price not accepted by the customer is 
-		 *  prevented by fixing the price based on a single read operation;
-		 *  this price then is considered the "agreed price" for this transaction
-		 *  i.e. price changes after this point do not affect the ongoing transaction
+		/* retrieves the price (which has been fixed and 
+		 * remembered when the attendant was acquired), 
+		 * then starts the pumping if agreeable to customer; 
 		 */
 		double price=attendant.getAgreedPrice();
 		
-		if(maxPricePerLiter<price){
+		if(maxPricePerLiter<price){ //check that price is agreeable
 			cancelledTooExpensive.incrementAndGet();
 			freeAttendant(attendant);
 			throw new GasTooExpensiveException();
-		}
+		}		
 		
-		attendant.pumpGas(amountInLiters);
+		attendant.pumpGas(amountInLiters);		
 		sold.incrementAndGet();	
+		
 		freeAttendant(attendant);
+		
 		double cost=price*amountInLiters;
 		addRevenue(cost);
+		
 		return cost;
 	}
 	
@@ -118,31 +121,35 @@ public class StevesSimpleGasStation implements GasStation{
 		revenue+=purchaseCost;
 	}
 
-	/** tries to acquire a pump that has enough gas for the given requirements, 
-	 *  @return a pump that can satisfy the customers needs 
-	 *           or null if all matching pumps are busy handling other customers
+	/** tries to acquire an attendant responsible for a pump 
+	 *  that has enough gas for the given requirements 
+	 *  @return an attendant that can satisfy the customers needs 
+	 *           or null if all matching attendants are busy handling other customers
 	 *  @throws NotEnoughGasException - if no pump available with enough gas 
-	 *  @Note: As GasPump is not thread-safe, this implementation may wait longer than 
-	 *         strictly necessary before it throws a NotEnoughGasException;
-	 *         still it will eventually throw the error, 
+	 *  @Note: As GasPump is not thread-safe (meaning we cannot always 
+	 *         be sure about the 'remaining' gas value), 
+	 *         this implementation may wait longer than strictly necessary 
+	 *         before it throws a NotEnoughGasException;
+	 *         still it will eventually throw the exception, 
 	 *         but may wait in some cases until all previous customers 
 	 *         (for the same gas type) are dealt with */
 	synchronized  protected PumpAttendant acquireMatchingPumpAttendant(GasType type, double amountInLiters) 
 			throws NotEnoughGasException{
-		boolean possibleMatchBusy=false;
-		System.out.println("Checking for "+type+"/"+amountInLiters);
-		for(PumpAttendant attendant:attendants){
-			System.out.println("attendant: "+attendant.getGasType()+"/"+attendant.getRemainingAmount());
+		//flag that indicates that there is a potentially matching attendant 
+		//that is currently busy with another customer request
+		boolean possibleMatchBusy=false; 
+		
+		for(PumpAttendant attendant:attendants){ //simply check all attendants if they match gas type and have enough gas left
 			if(attendant.getGasType()==type && attendant.getRemainingAmount()>=amountInLiters){				
-				if(attendant.isBusy())
+				if(attendant.isBusy())  //oh, a match, but he is busy...
 					possibleMatchBusy=true;
-				else{
+				else{ //oh a match, and available, take it 
 					attendant.reserveForCustomer(amountInLiters,prices[type.ordinal()]);
 					return attendant;
 				}				
 			}
 		}
-		if(!possibleMatchBusy){
+		if(!possibleMatchBusy){ //no match, not even one that is busy, well than we do not have what the customer needs
 			cancelledAllOutaGas.incrementAndGet();
 			throw new NotEnoughGasException();
 		}			
@@ -216,6 +223,7 @@ public class StevesSimpleGasStation implements GasStation{
 	}
 
 	
+	// just a main to try it all out
 	public static void main(String [] args)
 	{
 		GasStation station=new StevesSimpleGasStation();
